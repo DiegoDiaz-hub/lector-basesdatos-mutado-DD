@@ -13,7 +13,7 @@ import hashlib
 # 🧠 CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(
-    page_title="🚀 Dashboard Mutado Universal",
+    page_title="🚀 bueno profe, ahi lo cambiamo",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -369,4 +369,5 @@ with st.expander("🔍 Metadatos y Diagnóstico"):
     st.write("### Tipos de datos:")
     st.write(df_master.dtypes.to_dict())
     st.write("### Vista previa de datos finales:")
+
     st.dataframe(df_master.head(10), use_container_width=True)
