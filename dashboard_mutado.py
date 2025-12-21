@@ -13,7 +13,7 @@ import hashlib
 # 🧠 CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(
-    page_title="🚀 bueno profe, ahi lo cambiamo",
+    page_title="🚀 Dashboards personalizados",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -371,3 +371,4 @@ with st.expander("🔍 Metadatos y Diagnóstico"):
     st.write("### Vista previa de datos finales:")
 
     st.dataframe(df_master.head(10), use_container_width=True)
+
