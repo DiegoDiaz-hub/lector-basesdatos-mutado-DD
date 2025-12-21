@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import duckdb
+import duckdb  # Reservado para escalabilidad (agregaciones eficientes en datasets grandes)
 import plotly.express as px
 import plotly.graph_objects as go
 import os
@@ -18,6 +18,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ==============================
+# 🛡️ CONSTANTES DE SEGURIDAD
+# ==============================
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_ROWS_PER_FILE = 100_000
 
 # ==============================
 # 🧪 FUNCIONES (TODO EN MEMORIA)
@@ -93,7 +99,7 @@ def auto_detect_columns(df: pd.DataFrame) -> Dict[str, str]:
     cols = df.columns.str.lower().tolist()
     mapping = {}
     
-    # Monto: busca en orden de prioridad
+    # Monto
     for col in cols:
         if any(k in col for k in ['venta', 'monto', 'total', 'ingreso', 'valor', 'amount', 'revenue', 'precio', 'costo']):
             mapping['monto'] = col
@@ -108,7 +114,6 @@ def auto_detect_columns(df: pd.DataFrame) -> Dict[str, str]:
             mapping['fecha'] = col
             break
     else:
-        # ¿Alguna columna se ve como fecha?
         for col in df.select_dtypes(include='object').columns:
             sample = df[col].dropna().head(3)
             if len(sample) > 0:
@@ -152,25 +157,33 @@ with st.sidebar:
         "Sube tus archivos", 
         type=['csv','xlsx','xls','json'], 
         accept_multiple_files=True,
-        help="Soporta múltiples archivos. Funciona con cualquier tipo de dato."
+        help="Soporta múltiples archivos. Máximo 50 MB por archivo."
     )
     st.divider()
-    st.caption("💡 Tip: Usa nombres claros como 'datos_2024.csv'")
+    st.caption("💡 Tip: Usa nombres claros como 'ventas_2024.csv'")
 
 if not uploaded_files:
     st.info("👆 Sube al menos un archivo para comenzar.")
     st.stop()
 
 # ==============================
-# 🧹 PROCESAMIENTO UNIVERSAL (SIN ÁREAS)
+# 🧹 PROCESAMIENTO UNIVERSAL
 # ==============================
 
 all_clean_dfs = []
 
 for file in uploaded_files:
+    if file.size > MAX_FILE_SIZE_BYTES:
+        st.error(f"❌ {file.name} es demasiado grande (máx. 50 MB).")
+        continue
+
     with st.expander(f"📂 {file.name}", expanded=False):
         try:
             df = load_file(file)
+            if len(df) > MAX_ROWS_PER_FILE:
+                st.warning(f"⚠️ {file.name} truncado a {MAX_ROWS_PER_FILE:,} filas por rendimiento.")
+                df = df.head(MAX_ROWS_PER_FILE)
+            
             st.write(f"✅ Cargado: `{df.shape[0]}` filas, `{df.shape[1]}` columnas")
             df_clean, report = clean_table(df)
             st.json(report)
@@ -179,7 +192,6 @@ for file in uploaded_files:
             st.error(f"❌ Error en {file.name}: {str(e)}")
             continue
 
-# Combinar todos los archivos
 if not all_clean_dfs:
     st.error("⚠️ No se pudieron cargar archivos válidos.")
     st.stop()
@@ -197,12 +209,11 @@ for col in obj_cols:
         except:
             pass
 
-# Validar que haya al menos algo útil
 numeric_cols = df_master.select_dtypes(include='number').columns.tolist()
 datetime_cols = df_master.select_dtypes(include='datetime').columns.tolist()
 
 if not numeric_cols and not datetime_cols:
-    st.warning("⚠️ No se detectaron columnas numéricas ni de fecha. Intenta con otro archivo.")
+    st.warning("⚠️ No se detectaron columnas numéricas ni de fecha.")
     st.dataframe(df_master.head(), use_container_width=True)
     st.stop()
 
@@ -212,11 +223,9 @@ if not numeric_cols and not datetime_cols:
 
 col_map = auto_detect_columns(df_master)
 
-# Si no hay monto detectado pero hay numéricas, usar la primera
 if not col_map.get('monto') and numeric_cols:
     col_map['monto'] = numeric_cols[0]
 
-# Si no hay fecha detectada pero hay datetime, usar la primera
 if not col_map.get('fecha') and datetime_cols:
     col_map['fecha'] = datetime_cols[0]
 
@@ -226,13 +235,11 @@ if not col_map.get('fecha') and datetime_cols:
 
 st.sidebar.header("🎛️ Filtros Globales")
 
-# --- Conversión de monto a numérico si es necesario ---
 if col_map['monto'] and df_master[col_map['monto']].dtype == 'object':
     cleaned = df_master[col_map['monto']].astype(str).str.replace(r'[^\d\.\-]', '', regex=True)
     df_master[col_map['monto']] = pd.to_numeric(cleaned, errors='coerce')
     df_master = df_master.dropna(subset=[col_map['monto']])
 
-# --- Conversión y manejo de fechas ---
 if col_map['fecha'] and col_map['fecha'] in df_master.columns:
     if df_master[col_map['fecha']].dtype == 'object':
         df_master[col_map['fecha']] = pd.to_datetime(df_master[col_map['fecha']], errors='coerce')
@@ -240,14 +247,12 @@ if col_map['fecha'] and col_map['fecha'] in df_master.columns:
     df_master['año'] = df_master[col_map['fecha']].dt.year
     df_master['mes'] = df_master[col_map['fecha']].dt.to_period('M').astype(str)
 
-    # Filtro por año
     años = sorted(df_master['año'].dropna().unique())
     if len(años) > 1:
         año_sel = st.sidebar.radio("Año", ["Todos"] + [int(y) for y in años], horizontal=True)
         if año_sel != "Todos":
             df_master = df_master[df_master['año'] == int(año_sel)]
     
-    # Filtro por mes
     if col_map['fecha'] in df_master.columns and len(df_master) > 0:
         meses = sorted(df_master['mes'].dropna().unique())
         if len(meses) > 1:
@@ -255,7 +260,6 @@ if col_map['fecha'] and col_map['fecha'] in df_master.columns:
             if mes_sel:
                 df_master = df_master[df_master['mes'].isin(mes_sel)]
 
-# --- Filtros por dimensiones ---
 for dim_name, col in [('Producto', col_map['producto']), ('Local', col_map['local']), ('Región', col_map['region']), ('Cliente', col_map['cliente'])]:
     if col and col in df_master.columns:
         unique_vals = sorted(df_master[col].dropna().astype(str).unique())
@@ -265,18 +269,32 @@ for dim_name, col in [('Producto', col_map['producto']), ('Local', col_map['loca
                 df_master = df_master[df_master[col].astype(str).isin(selected)]
 
 # ==============================
-# 📊 KPIs DINÁMICOS
+# 📊 KPIs DINÁMICOS MEJORADOS
 # ==============================
 
 if col_map['monto'] and col_map['monto'] in df_master.columns:
-    total = df_master[col_map['monto']].sum()
-    avg = df_master[col_map['monto']].mean()
+    monto_col = col_map['monto']
+    total = df_master[monto_col].sum()
+    avg = df_master[monto_col].mean()
+    median = df_master[monto_col].median()
     count = len(df_master)
-    
-    col1, col2, col3 = st.columns(3)
+
+    growth = None
+    if col_map['fecha'] and col_map['fecha'] in df_master.columns:
+        df_monthly = df_master.set_index(col_map['fecha']).resample('M')[monto_col].sum()
+        if len(df_monthly) >= 2:
+            last = df_monthly.iloc[-1]
+            prev = df_monthly.iloc[-2]
+            growth = (last - prev) / prev * 100 if prev != 0 else 0
+
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("📊 Total", f"${total:,.0f}")
     col2.metric("🧾 Promedio", f"${avg:,.0f}")
-    col3.metric("🧮 Registros", f"{count:,}")
+    col3.metric("⚖️ Mediana", f"${median:,.0f}")
+    if growth is not None:
+        col4.metric("📈 Crecimiento (mes)", f"{growth:+.1f}%", delta_color="normal")
+    else:
+        col4.metric("🧮 Registros", f"{count:,}")
 
 # ==============================
 # 📈 ANÁLISIS AUTOMÁTICO
@@ -284,7 +302,6 @@ if col_map['monto'] and col_map['monto'] in df_master.columns:
 
 st.subheader("🤖 Análisis Inteligente")
 
-# Tendencia temporal
 if col_map['fecha'] and col_map['monto'] and col_map['fecha'] in df_master.columns and col_map['monto'] in df_master.columns:
     try:
         df_trend = df_master.set_index(col_map['fecha']).resample('M')[col_map['monto']].sum().reset_index()
@@ -294,7 +311,6 @@ if col_map['fecha'] and col_map['monto'] and col_map['fecha'] in df_master.colum
     except Exception as e:
         st.warning(f"No se pudo generar la tendencia: {e}")
 
-# Top N por dimensiones
 dimensions = {
     "Producto": col_map['producto'],
     "Local": col_map['local'],
@@ -337,6 +353,7 @@ if numeric_cols and all_cols:
                 fig = px.line(df_agg, x=col_x, y=col_y, title=f"{col_y} por {col_x}")
             elif chart_type == "Pastel":
                 df_agg = df_master.groupby(col_x)[col_y].sum().reset_index()
+                df_agg = df_agg.sort_values(col_y, ascending=False).head(10)  # ✅ Top 10 para legibilidad
                 fig = px.pie(df_agg, names=col_x, values=col_y, title=f"Distribución de {col_y} por {col_x}")
             elif chart_type == "Dispersión":
                 fig = px.scatter(df_master, x=col_x, y=col_y, opacity=0.7, title=f"{col_y} vs {col_x}")
@@ -365,10 +382,9 @@ st.download_button(
 
 with st.expander("🔍 Metadatos y Diagnóstico"):
     st.write("### Columnas detectadas automáticamente:")
-    st.json(col_map)
+    detected = {k: v if v else "❌ No detectada" for k, v in col_map.items()}
+    st.json(detected)
     st.write("### Tipos de datos:")
     st.write(df_master.dtypes.to_dict())
     st.write("### Vista previa de datos finales:")
-
     st.dataframe(df_master.head(10), use_container_width=True)
-
