@@ -149,7 +149,7 @@ def auto_detect_columns(df: pd.DataFrame) -> Dict[str, str]:
 # ==============================
 
 st.title("⚡ Dashboard Mutado Universal — Análisis Inteligente sin Límites")
-st.markdown("Sube archivos **CSV, Excel o JSON** y obtén insights automáticos. ¡Sin etiquetas forzadas!")
+st.markdown("Sube archivos **CSV, Excel o JSON** y obtén insights automáticos. ¡Sin etiquetas forzadas!, espero se encuentren bien, pronto actualizare el lector de base de datos para el COCH y para la FEDACHI")
 
 with st.sidebar:
     st.header("📁 Carga de Archivos")
@@ -388,3 +388,4 @@ with st.expander("🔍 Metadatos y Diagnóstico"):
     st.write(df_master.dtypes.to_dict())
     st.write("### Vista previa de datos finales:")
     st.dataframe(df_master.head(10), use_container_width=True)
+
